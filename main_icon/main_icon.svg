@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 388 256" width="388" height="256">
+  <defs>
+    <linearGradient id="yt-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#FF0000;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#C00000;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <!-- 卡片外框，使用渐变填充 -->
+  <rect x="30" y="10" width="328" height="228" rx="24" ry="24" 
+        fill="url(#yt-gradient)"/>
+  
+  <!-- 内部元素，使用白色填充 -->
+  <rect x="78" y="128" width="46" height="24" rx="12" ry="12" fill="#FFFFFF"/>
+  <rect x="148" y="128" width="160" height="24" rx="12" ry="12" fill="#FFFFFF"/>
+  <rect x="78" y="174" width="166" height="24" rx="12" ry="12" fill="#FFFFFF"/>
+  <rect x="264" y="174" width="44" height="24" rx="12" ry="12" fill="#FFFFFF"/>
+</svg>
