@@ -1,17 +1,16 @@
 // ==UserScript==
-// @name         [YouTube] Outside Subtitle [20251202] v2.2.0
+// @name         [YouTube] Outside Subtitle [20251203] v1.1.0
 // @namespace    0_V userscripts/[YouTube] Outside Subtitle
 // @description  Adds a button to load local SRT/VTT subtitles on YouTube. Works with YouTube's single-page design and supports mobile.
 // @license      MIT
-// @version      [20251202] v2.2.0
-// @update-log   2025-12-02: v2.1.0 refreshes the YouTube-native settings panel, defaults Drive auto-load on, and swaps single/double-click actions; 2025-12-02: add Google Drive picker with oEmbed-aware sorting + credential tab; 2025-11-23: refactor into numbered modules under src/ with a bundler outputting dist/[YouTube] Local Subtitle Loader.user.js
-// @grant        GM_registerMenuCommand
+// @version      [20251203] v1.1.0
+// @update-log   2025-12-03: v1.1.0 highlights exact Drive picker matches with a green border and keeps auto-load restricted to exact subtitles with a red failure toast when none qualify
 // @grant        GM_xmlhttpRequest
 // @connect      oauth2.googleapis.com
 // @connect      www.googleapis.com
 // @connect      www.youtube.com
 // @match        https://www.youtube.com/*
-// @icon         https://github.com/0-V-linuxdo/YouTube-Outside-Subtitle/raw/refs/heads/main/main_icon/main_icon.svg
+// @icon         https://github.com/0-V-linuxdo/YouTube-Local-Subtitle-/raw/refs/heads/main/main_icon/main_icon.svg
 // ==/UserScript==
 
 /* ===================== IMPORTANT · NOTICE · START =====================
@@ -63,7 +62,8 @@
                 appearance: '样式',
                 language: '语言',
                 drive: '云盘',
-                auto: '自动'
+                auto: '自动',
+                sync: '同步'
             },
             fields: {
                 fontSize: '字体大小',
@@ -92,7 +92,8 @@
                     downloadFailed: '读取 Google Drive 文件失败，请查看控制台。',
                     parseFailed: '解析云盘文件失败，请确认格式是否为有效的 SRT/VTT。',
                     gmUnavailable: '当前环境缺少 GM_xmlhttpRequest，无法调用 Google Drive API。',
-                    permissionDenied: '此帐号尚未授权本应用访问该文件。请先用同一帐号打开该文件或将其共享给应用。'
+                    permissionDenied: '此帐号尚未授权本应用访问该文件。请先用同一帐号打开该文件或将其共享给应用。',
+                    noMatchingSubtitle: 'Drive中无符合字幕！'
                 },
                 panel: {
                     description: '在下面填入你自己的 Google OAuth 凭证。数据仅保存在本地浏览器中。',
@@ -113,10 +114,39 @@
                     hint: '点击下方任意文件即可加载字幕。',
                     empty: '未找到任何 .srt 或 .vtt 文件。',
                     matchPrefix: '匹配度',
+                    matchExact: '完全匹配',
+                    matchPartial: '部分匹配',
+                    matchPartialKeywords: keywords => `部分匹配：${keywords}`,
                     retry: '重试',
                     close: '关闭',
                     loadingFile: name => `正在加载：${name}`,
                     error: '无法获取文件列表，请稍后再试。'
+                }
+            },
+            sync: {
+                description: '在这里导入或导出脚本配置，方便在不同浏览器之间同步。',
+                helper: '导出会下载一个 JSON 文件；导入会覆盖当前设置和云盘凭证。',
+                actions: {
+                    import: 'Import',
+                    export: 'Export',
+                    importClipboard: 'Import',
+                    exportClipboard: 'Export'
+                },
+                sectionLabels: {
+                    file: '文件同步',
+                    clipboard: '剪贴板同步'
+                },
+                confirmImport: '确定要导入并覆盖当前配置吗？',
+                messages: {
+                    importSuccess: '配置导入成功！',
+                    importError: '导入失败，请确认文件格式正确。',
+                    exportSuccess: '配置已导出。',
+                    exportError: '导出失败，请稍后再试。',
+                    clipboardImportSuccess: '已从剪贴板导入配置。',
+                    clipboardImportError: '剪贴板数据无效或读取失败。',
+                    clipboardExportSuccess: '配置已复制到剪贴板。',
+                    clipboardExportError: '写入剪贴板失败。',
+                    clipboardUnavailable: '当前环境不支持剪贴板操作。'
                 }
             },
             automation: {
@@ -155,7 +185,8 @@
                 appearance: 'Appearance',
                 language: 'Language',
                 drive: 'Drive',
-                auto: 'Auto'
+                auto: 'Auto',
+                sync: 'Sync'
             },
             fields: {
                 fontSize: 'Font Size',
@@ -184,7 +215,8 @@
                     downloadFailed: 'Failed to download the selected Drive file. Check the console for details.',
                     parseFailed: 'Could not parse the Drive file. Ensure it is a valid SRT/VTT.',
                     gmUnavailable: 'GM_xmlhttpRequest is required for Google Drive access but is not available.',
-                    permissionDenied: 'This app is not authorized to read that file. Open/share it with the same Google account first.'
+                    permissionDenied: 'This app is not authorized to read that file. Open/share it with the same Google account first.',
+                    noMatchingSubtitle: 'No matching Drive subtitle was found.'
                 },
                 panel: {
                     description: 'Store your own Google OAuth credentials locally to access Drive files.',
@@ -205,10 +237,39 @@
                     hint: 'Click any file below to load it as subtitles.',
                     empty: 'No .srt or .vtt files were found.',
                     matchPrefix: 'Match',
+                    matchExact: 'Exact title match',
+                    matchPartial: 'Keyword match',
+                    matchPartialKeywords: keywords => `Keyword match: ${keywords}`,
                     retry: 'Retry',
                     close: 'Close',
                     loadingFile: name => `Loading ${name}…`,
                     error: 'Unable to fetch the file list. Please try again later.'
+                }
+            },
+            sync: {
+                description: 'Import or export your script configuration to stay in sync across browsers.',
+                helper: 'Export downloads a JSON backup; importing overwrites current settings and Drive credentials.',
+                actions: {
+                    import: 'Import',
+                    export: 'Export',
+                    importClipboard: 'Import',
+                    exportClipboard: 'Export'
+                },
+                sectionLabels: {
+                    file: 'File sync',
+                    clipboard: 'Clipboard sync'
+                },
+                confirmImport: 'Importing will replace your current configuration. Continue?',
+                messages: {
+                    importSuccess: 'Configuration imported.',
+                    importError: 'Import failed. Please check the file.',
+                    exportSuccess: 'Configuration exported.',
+                    exportError: 'Export failed. Please try again.',
+                    clipboardImportSuccess: 'Configuration pasted from clipboard.',
+                    clipboardImportError: 'Clipboard data is invalid or could not be read.',
+                    clipboardExportSuccess: 'Configuration copied to clipboard.',
+                    clipboardExportError: 'Failed to copy configuration.',
+                    clipboardUnavailable: 'Clipboard access is not supported in this context.'
                 }
             },
             automation: {
@@ -242,21 +303,21 @@
         }
     };
 
-    const INLINE_MESSAGE_VARIANTS = {
+    const TOAST_VARIANTS = {
         info: {
-            background: 'rgba(32, 33, 36, 0.95)',
-            color: '#ffffff',
-            border: 'rgba(255, 255, 255, 0.18)'
+            background: '#1d4ed8',
+            color: '#f0f6ff',
+            border: '#1e40af'
         },
         success: {
-            background: 'rgba(62, 180, 99, 0.18)',
-            color: '#e3ffe9',
-            border: 'rgba(62, 180, 99, 0.75)'
+            background: '#16a34a',
+            color: '#ecfdf5',
+            border: '#15803d'
         },
         error: {
-            background: 'rgba(140, 33, 32, 0.96)',
-            color: '#ffe7e6',
-            border: 'rgba(255, 146, 132, 0.85)'
+            background: '#dc2626',
+            color: '#fff5f5',
+            border: '#b91c1c'
         }
     };
 
@@ -267,6 +328,8 @@
     const TOOLTIP_SHOW_DELAY = 320;
     const TOOLTIP_HIDE_DELAY = 140;
     const TOOLTIP_VERTICAL_GAP = 16;
+    const TOAST_VERTICAL_GAP = 0;
+    const TOAST_BOTTOM_OFFSET = 0;
 
     let subtitles = [];
     let videoElement = null;
@@ -278,8 +341,10 @@
     let fileInputLabelRef = null;
     let fileInputLabelTextRef = null;
     let completionBarRef = null;
-    let inlineMessageRef = null;
-    let inlineMessageTimer = null;
+    let toastMessageRef = null;
+    let toastMessageTimer = null;
+    let toastHideTimer = null;
+    let toastPositionCleanup = null;
     let successHighlightTimer = null;
     let successHighlightOriginalStyle = null;
     let settingsPanelRef = null;
@@ -293,8 +358,6 @@
     let effectPreviewRestoreState = null;
     let singleClickTimer = null;
     let pendingFileInputRef = null;
-    let settingsMenuRegistered = false;
-    let driveMenuRegistered = false;
     const themeChangeCallbacks = new Set();
     let labelThemeCleanup = null;
     let panelThemeCleanup = null;
@@ -383,18 +446,19 @@
                     ? dict.prompts.selection
                     : fallback.prompts.selection
             },
-            messages: {
-                saved: dict.messages?.saved || fallback.messages.saved,
-                missingConfig: dict.messages?.missingConfig || fallback.messages.missingConfig,
-                loading: dict.messages?.loading || fallback.messages.loading,
-                noFiles: dict.messages?.noFiles || fallback.messages.noFiles,
-                invalidSelection: dict.messages?.invalidSelection || fallback.messages.invalidSelection,
-                unsupportedType: dict.messages?.unsupportedType || fallback.messages.unsupportedType,
-                downloadFailed: dict.messages?.downloadFailed || fallback.messages.downloadFailed,
-                parseFailed: dict.messages?.parseFailed || fallback.messages.parseFailed,
-                gmUnavailable: dict.messages?.gmUnavailable || fallback.messages.gmUnavailable,
-                permissionDenied: dict.messages?.permissionDenied || fallback.messages.permissionDenied
-            },
+                messages: {
+                    saved: dict.messages?.saved || fallback.messages.saved,
+                    missingConfig: dict.messages?.missingConfig || fallback.messages.missingConfig,
+                    loading: dict.messages?.loading || fallback.messages.loading,
+                    noFiles: dict.messages?.noFiles || fallback.messages.noFiles,
+                    invalidSelection: dict.messages?.invalidSelection || fallback.messages.invalidSelection,
+                    unsupportedType: dict.messages?.unsupportedType || fallback.messages.unsupportedType,
+                    downloadFailed: dict.messages?.downloadFailed || fallback.messages.downloadFailed,
+                    parseFailed: dict.messages?.parseFailed || fallback.messages.parseFailed,
+                    gmUnavailable: dict.messages?.gmUnavailable || fallback.messages.gmUnavailable,
+                    permissionDenied: dict.messages?.permissionDenied || fallback.messages.permissionDenied,
+                    noMatchingSubtitle: dict.messages?.noMatchingSubtitle || fallback.messages.noMatchingSubtitle
+                },
             panel: {
                 description: dict.panel?.description || fallback.panel.description,
                 helper: dict.panel?.helper || fallback.panel.helper,
@@ -414,6 +478,11 @@
                 hint: dict.picker?.hint || fallback.picker.hint,
                 empty: dict.picker?.empty || fallback.picker.empty,
                 matchPrefix: dict.picker?.matchPrefix || fallback.picker.matchPrefix,
+                matchExact: dict.picker?.matchExact || fallback.picker.matchExact,
+                matchPartial: dict.picker?.matchPartial || fallback.picker.matchPartial,
+                matchPartialKeywords: typeof dict.picker?.matchPartialKeywords === 'function'
+                    ? dict.picker.matchPartialKeywords
+                    : fallback.picker.matchPartialKeywords,
                 retry: dict.picker?.retry || fallback.picker.retry,
                 close: dict.picker?.close || fallback.picker.close,
                 loadingFile: typeof dict.picker?.loadingFile === 'function'
@@ -423,9 +492,96 @@
             }
         };
     }
+
+    function getSyncStrings() {
+        const dict = getLocaleStrings().sync || {};
+        const fallback = I18N.en.sync;
+        return {
+            description: dict.description || fallback.description,
+            helper: dict.helper || fallback.helper,
+            actions: {
+                import: dict.actions?.import || fallback.actions.import,
+                export: dict.actions?.export || fallback.actions.export,
+                importClipboard: dict.actions?.importClipboard || fallback.actions.importClipboard,
+                exportClipboard: dict.actions?.exportClipboard || fallback.actions.exportClipboard
+            },
+            sectionLabels: {
+                file: dict.sectionLabels?.file || fallback.sectionLabels.file,
+                clipboard: dict.sectionLabels?.clipboard || fallback.sectionLabels.clipboard
+            },
+            confirmImport: dict.confirmImport || fallback.confirmImport,
+            messages: {
+                importSuccess: dict.messages?.importSuccess || fallback.messages.importSuccess,
+                importError: dict.messages?.importError || fallback.messages.importError,
+                exportSuccess: dict.messages?.exportSuccess || fallback.messages.exportSuccess,
+                exportError: dict.messages?.exportError || fallback.messages.exportError,
+                clipboardImportSuccess: dict.messages?.clipboardImportSuccess || fallback.messages.clipboardImportSuccess,
+                clipboardImportError: dict.messages?.clipboardImportError || fallback.messages.clipboardImportError,
+                clipboardExportSuccess: dict.messages?.clipboardExportSuccess || fallback.messages.clipboardExportSuccess,
+                clipboardExportError: dict.messages?.clipboardExportError || fallback.messages.clipboardExportError,
+                clipboardUnavailable: dict.messages?.clipboardUnavailable || fallback.messages.clipboardUnavailable
+            }
+        };
+    }
 /* -------------------------------------------------------------------------- *
  * Module 02 · Style injection and subtitle/button appearance utilities
  * -------------------------------------------------------------------------- */
+
+    function sanitizeSettingsData(raw, fallback = DEFAULT_SETTINGS) {
+        const fallbackSource = (fallback && typeof fallback === 'object') ? fallback : DEFAULT_SETTINGS;
+        const base = { ...DEFAULT_SETTINGS, ...fallbackSource };
+        if (!raw || typeof raw !== 'object') {
+            return base;
+        }
+        const candidate = raw;
+        if (typeof candidate.fontSize === 'number' && Number.isFinite(candidate.fontSize)) {
+            base.fontSize = clamp(candidate.fontSize, 18, 72);
+        }
+        if (typeof candidate.lineHeight === 'number' && Number.isFinite(candidate.lineHeight)) {
+            base.lineHeight = clamp(candidate.lineHeight, 1.1, 2);
+        }
+        if (typeof candidate.bottom === 'number' && Number.isFinite(candidate.bottom)) {
+            base.bottom = clamp(candidate.bottom, 2, 20);
+        }
+        if (isValidHexColor(candidate.color)) {
+            base.color = candidate.color;
+        }
+        if (isValidHexColor(candidate.shadowColor)) {
+            base.shadowColor = candidate.shadowColor;
+        }
+        if (candidate.buttonEffect === 'pulse' || candidate.buttonEffect === 'bar') {
+            base.buttonEffect = candidate.buttonEffect;
+        }
+        if (candidate.language === 'zh' || candidate.language === 'en' || candidate.language === 'auto') {
+            base.language = candidate.language;
+        }
+        if (typeof candidate.autoDriveLoad === 'boolean') {
+            base.autoDriveLoad = candidate.autoDriveLoad;
+        }
+        return base;
+    }
+
+    function sanitizeDriveSettingsData(raw, fallback = DEFAULT_DRIVE_SETTINGS) {
+        const fallbackSource = (fallback && typeof fallback === 'object') ? fallback : DEFAULT_DRIVE_SETTINGS;
+        const base = {
+            clientId: typeof fallbackSource.clientId === 'string' ? fallbackSource.clientId.trim() : DEFAULT_DRIVE_SETTINGS.clientId,
+            clientSecret: typeof fallbackSource.clientSecret === 'string' ? fallbackSource.clientSecret.trim() : DEFAULT_DRIVE_SETTINGS.clientSecret,
+            refreshToken: typeof fallbackSource.refreshToken === 'string' ? fallbackSource.refreshToken.trim() : DEFAULT_DRIVE_SETTINGS.refreshToken
+        };
+        if (!raw || typeof raw !== 'object') {
+            return base;
+        }
+        if (typeof raw.clientId === 'string') {
+            base.clientId = raw.clientId.trim();
+        }
+        if (typeof raw.clientSecret === 'string') {
+            base.clientSecret = raw.clientSecret.trim();
+        }
+        if (typeof raw.refreshToken === 'string') {
+            base.refreshToken = raw.refreshToken.trim();
+        }
+        return base;
+    }
 
     function loadSettings() {
         try {
@@ -435,32 +591,7 @@
                 return;
             }
             const parsed = JSON.parse(raw);
-            const next = { ...DEFAULT_SETTINGS };
-            if (typeof parsed.fontSize === 'number') {
-                next.fontSize = clamp(parsed.fontSize, 18, 72);
-            }
-            if (typeof parsed.lineHeight === 'number') {
-                next.lineHeight = clamp(parsed.lineHeight, 1.1, 2);
-            }
-            if (typeof parsed.bottom === 'number') {
-                next.bottom = clamp(parsed.bottom, 2, 20);
-            }
-            if (isValidHexColor(parsed.color)) {
-                next.color = parsed.color;
-            }
-            if (isValidHexColor(parsed.shadowColor)) {
-                next.shadowColor = parsed.shadowColor;
-            }
-            if (parsed.buttonEffect === 'pulse' || parsed.buttonEffect === 'bar') {
-                next.buttonEffect = parsed.buttonEffect;
-            }
-            if (parsed.language === 'zh' || parsed.language === 'en' || parsed.language === 'auto') {
-                next.language = parsed.language;
-            }
-            if (typeof parsed.autoDriveLoad === 'boolean') {
-                next.autoDriveLoad = parsed.autoDriveLoad;
-            }
-            currentSettings = next;
+            currentSettings = sanitizeSettingsData(parsed);
         } catch (error) {
             console.warn('Failed to load stored settings, using defaults.', error);
             currentSettings = { ...DEFAULT_SETTINGS };
@@ -483,15 +614,107 @@
                 return;
             }
             const parsed = JSON.parse(raw);
-            driveSettings = {
-                clientId: typeof parsed.clientId === 'string' ? parsed.clientId.trim() : '',
-                clientSecret: typeof parsed.clientSecret === 'string' ? parsed.clientSecret.trim() : '',
-                refreshToken: typeof parsed.refreshToken === 'string' ? parsed.refreshToken.trim() : ''
-            };
+            driveSettings = sanitizeDriveSettingsData(parsed);
         } catch (error) {
             console.warn('Failed to load Google Drive settings, using defaults.', error);
             driveSettings = { ...DEFAULT_DRIVE_SETTINGS };
         }
+    }
+
+    function getScriptConfigurationSnapshot() {
+        return {
+            meta: {
+                version: 1,
+                exportedAt: new Date().toISOString()
+            },
+            settings: { ...currentSettings },
+            drive: { ...driveSettings }
+        };
+    }
+
+    function exportScriptConfiguration() {
+        try {
+            const payload = getScriptConfigurationSnapshot();
+            const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const anchor = document.createElement('a');
+            const now = new Date();
+            const pad = value => String(value).padStart(2, '0');
+            const filename = `local-subtitle-config-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.json`;
+            anchor.href = url;
+            anchor.download = filename;
+            document.body.appendChild(anchor);
+            anchor.click();
+            anchor.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 0);
+            return true;
+        } catch (error) {
+            console.warn('Failed to export configuration:', error);
+            return false;
+        }
+    }
+
+    async function copyScriptConfigurationToClipboard() {
+        const payload = JSON.stringify(getScriptConfigurationSnapshot(), null, 2);
+        if (typeof GM_setClipboard === 'function') {
+            try {
+                GM_setClipboard(payload, { type: 'text', mimetype: 'text/plain' });
+                return true;
+            } catch (error) {
+                console.warn('GM_setClipboard failed:', error);
+            }
+        }
+        if (navigator?.clipboard?.writeText) {
+            await navigator.clipboard.writeText(payload);
+            return true;
+        }
+        throw new Error('Clipboard write is unavailable.');
+    }
+
+    async function importScriptConfigurationFromClipboard() {
+        let text = '';
+        if (navigator?.clipboard?.readText) {
+            text = await navigator.clipboard.readText();
+        } else if (typeof GM_getClipboard === 'function') {
+            try {
+                text = await GM_getClipboard({ type: 'text' });
+            } catch (error) {
+                console.warn('GM_getClipboard failed:', error);
+            }
+        }
+        if (typeof text !== 'string' || !text.trim()) {
+            throw new Error('Clipboard is empty or unavailable.');
+        }
+        try {
+            const payload = JSON.parse(text);
+            return applyImportedConfiguration(payload);
+        } catch (error) {
+            console.warn('Clipboard import failed:', error);
+            throw error;
+        }
+    }
+
+    function applyImportedConfiguration(payload) {
+        if (!payload || typeof payload !== 'object') {
+            throw new Error('Invalid configuration payload.');
+        }
+        let changed = false;
+        if (payload.settings && typeof payload.settings === 'object') {
+            currentSettings = sanitizeSettingsData(payload.settings);
+            saveSettings();
+            applySubtitleStyle();
+            changed = true;
+        }
+        if (payload.drive && typeof payload.drive === 'object') {
+            driveSettings = sanitizeDriveSettingsData(payload.drive);
+            saveDriveSettings();
+            resetDriveTokenCache();
+            changed = true;
+        }
+        if (changed) {
+            updateLanguageAwareUI();
+        }
+        return changed;
     }
 
     function saveDriveSettings() {
@@ -857,6 +1080,66 @@
             #local-subtitle-settings-panel .local-subtitle-drive-action:hover {
                 opacity: 0.9;
             }
+            #local-subtitle-settings-panel .local-subtitle-sync-description {
+                font-size: 13px;
+                color: var(--local-subtitle-panel-text);
+                line-height: 1.5;
+            }
+            #local-subtitle-settings-panel .local-subtitle-sync-helper {
+                margin-top: 6px;
+                font-size: 12px;
+                color: var(--local-subtitle-panel-subtext);
+                line-height: 1.4;
+            }
+            #local-subtitle-settings-panel .local-subtitle-sync-groups {
+                display: flex;
+                flex-direction: column;
+                gap: 14px;
+                margin-top: 18px;
+            }
+            #local-subtitle-settings-panel .local-subtitle-sync-group {
+                padding: 16px;
+                border-radius: 24px;
+                border: 1px solid rgba(255, 255, 255, 0.18);
+                background: rgba(255, 255, 255, 0.02);
+            }
+            #local-subtitle-settings-panel .local-subtitle-sync-group h5 {
+                margin: 0 0 12px;
+                font-size: 12px;
+                letter-spacing: 0.4px;
+                text-transform: uppercase;
+                color: var(--local-subtitle-panel-subtext);
+            }
+            #local-subtitle-settings-panel .local-subtitle-sync-actions {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 12px;
+            }
+            #local-subtitle-settings-panel .local-subtitle-sync-button {
+                border-radius: 999px;
+                border: 1px solid #d8d8d8;
+                flex: 1;
+                min-width: 120px;
+                padding: 12px 16px;
+                font-size: 14px;
+                font-weight: 600;
+                letter-spacing: 0.3px;
+                text-align: center;
+                background: transparent;
+                color: var(--local-subtitle-panel-text);
+            }
+            #local-subtitle-settings-panel .local-subtitle-sync-button.primary {
+                background: linear-gradient(135deg, #ff2d55, #c4001d);
+                color: #ffffff;
+            }
+            #local-subtitle-settings-panel .local-subtitle-sync-button.secondary {
+                border-color: #d0d0d0;
+                color: var(--local-subtitle-panel-text);
+            }
+            #local-subtitle-settings-panel .local-subtitle-sync-button.ghost {
+                border-color: #e0e0e0;
+                color: var(--local-subtitle-panel-subtext);
+            }
             #local-subtitle-settings-panel .local-subtitle-auto-options {
                 display: flex;
                 flex-direction: column;
@@ -984,9 +1267,18 @@
                 gap: 4px;
                 transition: border-color 0.2s ease, background 0.2s ease;
             }
+            .local-subtitle-drive-file[data-match-type="full"] {
+                border-color: #3eb463;
+                background: rgba(62, 180, 99, 0.12);
+                box-shadow: 0 0 0 1px rgba(62, 180, 99, 0.15);
+            }
             .local-subtitle-drive-file:hover {
                 border-color: rgba(255, 255, 255, 0.45);
                 background: rgba(255, 255, 255, 0.12);
+            }
+            .local-subtitle-drive-file[data-match-type="full"]:hover {
+                border-color: #48d273;
+                background: rgba(62, 180, 99, 0.22);
             }
             .local-subtitle-drive-file-name {
                 font-size: 14px;
@@ -1061,10 +1353,19 @@
         return label;
     }
 
+    function createSyncButton(labelText, variant = 'secondary') {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = `local-subtitle-sync-button ${variant}`;
+        button.textContent = labelText;
+        return button;
+    }
+
     function buildSettingsPanel() {
         ensureExtraStyles();
         if (settingsPanelRef) return settingsPanelRef;
         const strings = getLocaleStrings();
+        const syncStrings = getSyncStrings();
         const panel = document.createElement('div');
         panel.id = 'local-subtitle-settings-panel';
         panel.style.display = 'none';
@@ -1077,6 +1378,7 @@
         closeBtn.style.fontSize = '16px';
         closeBtn.style.lineHeight = '1';
         closeBtn.style.padding = '0 6px';
+        closeBtn.dataset.settingsPanelClose = 'true';
         closeBtn.addEventListener('click', () => toggleSettingsPanel(false));
         header.appendChild(closeBtn);
         panel.appendChild(header);
@@ -1095,6 +1397,9 @@
         const automationContent = document.createElement('div');
         automationContent.className = 'local-subtitle-tab-content';
         automationContent.dataset.tabContent = 'auto';
+        const syncContent = document.createElement('div');
+        syncContent.className = 'local-subtitle-tab-content';
+        syncContent.dataset.tabContent = 'sync';
 
         function createTabButton(key, label) {
             const button = document.createElement('button');
@@ -1112,6 +1417,7 @@
         createTabButton('language', strings.tabs.language);
         createTabButton('drive', strings.tabs.drive);
         createTabButton('auto', strings.tabs.auto);
+        createTabButton('sync', strings.tabs.sync || 'Sync');
         panel.appendChild(tabBar);
 
         const fontSizeInput = document.createElement('input');
@@ -1322,7 +1628,6 @@
         openPickerButton.className = 'local-subtitle-drive-action primary';
         openPickerButton.textContent = driveStrings.actions.openPicker;
         openPickerButton.addEventListener('click', () => {
-            toggleSettingsPanel(false);
             openGoogleDriveFilePicker();
         });
         const clearButton = document.createElement('button');
@@ -1379,17 +1684,132 @@
         });
         automationContent.appendChild(automationOptions);
 
+        const syncDescription = document.createElement('p');
+        syncDescription.className = 'local-subtitle-sync-description';
+        syncDescription.textContent = syncStrings.description;
+        syncContent.appendChild(syncDescription);
+        if (syncStrings.helper) {
+            const syncHelper = document.createElement('p');
+            syncHelper.className = 'local-subtitle-sync-helper';
+            syncHelper.textContent = syncStrings.helper;
+            syncContent.appendChild(syncHelper);
+        }
+        const importButton = createSyncButton(syncStrings.actions.import, 'primary');
+        const exportButton = createSyncButton(syncStrings.actions.export, 'secondary');
+        const importInput = document.createElement('input');
+        importInput.type = 'file';
+        importInput.accept = '.json,application/json';
+        importInput.style.display = 'none';
+        importInput.addEventListener('change', () => {
+            const file = importInput.files && importInput.files[0];
+            if (!file) return;
+            if (syncStrings.confirmImport) {
+                try {
+                    if (!window.confirm(syncStrings.confirmImport)) {
+                        importInput.value = '';
+                        return;
+                    }
+                } catch (error) {
+                    console.warn('Import confirmation prompt failed:', error);
+                }
+            }
+            const reader = new FileReader();
+            reader.addEventListener('error', () => {
+                showInlineMessage(syncStrings.messages.importError, 'error');
+                importInput.value = '';
+            });
+            reader.addEventListener('load', () => {
+                try {
+                    const result = typeof reader.result === 'string' ? reader.result : '';
+                    const payload = JSON.parse(result || '{}');
+                    const applied = applyImportedConfiguration(payload);
+                    showInlineMessage(
+                        applied ? syncStrings.messages.importSuccess : syncStrings.messages.importError,
+                        applied ? 'success' : 'error'
+                    );
+                } catch (error) {
+                    console.warn('Failed to import configuration:', error);
+                    showInlineMessage(syncStrings.messages.importError, 'error');
+                } finally {
+                    importInput.value = '';
+                }
+            });
+            reader.readAsText(file);
+        });
+        importButton.addEventListener('click', event => {
+            importInput.value = '';
+            handleSubtitleButtonDoubleClick(event, importInput);
+        });
+        exportButton.addEventListener('click', () => {
+            const success = exportScriptConfiguration();
+            showInlineMessage(
+                success ? syncStrings.messages.exportSuccess : syncStrings.messages.exportError,
+                success ? 'success' : 'error'
+            );
+        });
+        const clipboardImportButton = createSyncButton(syncStrings.actions.importClipboard, 'ghost');
+        const clipboardExportButton = createSyncButton(syncStrings.actions.exportClipboard, 'ghost');
+        clipboardImportButton.addEventListener('click', async () => {
+            try {
+                const applied = await importScriptConfigurationFromClipboard();
+                showInlineMessage(
+                    applied ? syncStrings.messages.clipboardImportSuccess : syncStrings.messages.clipboardImportError,
+                    applied ? 'success' : 'error'
+                );
+            } catch (error) {
+                const message = error?.message?.includes('unavailable')
+                    ? syncStrings.messages.clipboardUnavailable
+                    : syncStrings.messages.clipboardImportError;
+                showInlineMessage(message, 'error');
+            }
+        });
+        clipboardExportButton.addEventListener('click', async () => {
+            try {
+                await copyScriptConfigurationToClipboard();
+                showInlineMessage(syncStrings.messages.clipboardExportSuccess, 'success');
+            } catch (error) {
+                const message = error?.message?.includes('unavailable')
+                    ? syncStrings.messages.clipboardUnavailable
+                    : syncStrings.messages.clipboardExportError;
+                showInlineMessage(message, 'error');
+            }
+        });
+        function createSyncGroup(label, buttons) {
+            const group = document.createElement('div');
+            group.className = 'local-subtitle-sync-group';
+            if (label) {
+                const heading = document.createElement('h5');
+                heading.textContent = label;
+                group.appendChild(heading);
+            }
+            const actionStack = document.createElement('div');
+            actionStack.className = 'local-subtitle-sync-actions';
+            buttons.forEach(button => actionStack.appendChild(button));
+            group.appendChild(actionStack);
+            return group;
+        }
+
+        const syncGroupsWrapper = document.createElement('div');
+        syncGroupsWrapper.className = 'local-subtitle-sync-groups';
+        const fileGroup = createSyncGroup(syncStrings.sectionLabels?.file, [importButton, exportButton]);
+        fileGroup.appendChild(importInput);
+        const clipboardGroup = createSyncGroup(syncStrings.sectionLabels?.clipboard, [clipboardImportButton, clipboardExportButton]);
+        syncGroupsWrapper.appendChild(fileGroup);
+        syncGroupsWrapper.appendChild(clipboardGroup);
+        syncContent.appendChild(syncGroupsWrapper);
+
         const contentWrapper = document.createElement('div');
         contentWrapper.className = 'local-subtitle-tab-container';
         contentWrapper.appendChild(appearanceContent);
         contentWrapper.appendChild(languageContent);
         contentWrapper.appendChild(driveContent);
         contentWrapper.appendChild(automationContent);
+        contentWrapper.appendChild(syncContent);
         panel.appendChild(contentWrapper);
-        syncSettingsTabs();
 
         document.body.appendChild(panel);
         settingsPanelRef = panel;
+        syncSettingsTabs();
         if (!panelThemeCleanup) {
             panelThemeCleanup = registerThemeListener(applySettingsPanelTheme);
         } else {
@@ -1413,16 +1833,6 @@
         if (!panel) return;
         syncSettingsTabs();
         toggleSettingsPanel(true);
-    }
-
-    function registerSettingsMenu() {
-        if (settingsMenuRegistered) return;
-        if (typeof GM_registerMenuCommand === 'function') {
-            GM_registerMenuCommand(getLocaleStrings().menuTitle, openSettingsPanel);
-        } else {
-            console.warn('GM_registerMenuCommand is unavailable; settings panel menu will not be registered.');
-        }
-        settingsMenuRegistered = true;
     }
 
     function applyButtonAriaLabels() {
@@ -1502,8 +1912,11 @@
 
     function handleGlobalSettingsClick(event) {
         if (!settingsPanelRef || settingsPanelRef.style.display === 'none') return;
+        if (!event?.isTrusted) return;
         const target = event.target;
-        if (settingsPanelRef.contains(target)) return;
+        if (!target || typeof target.closest !== 'function') return;
+        const closeButton = target.closest('[data-settings-panel-close="true"]');
+        if (!closeButton || !settingsPanelRef.contains(closeButton)) return;
         toggleSettingsPanel(false);
     }
 
@@ -1582,78 +1995,108 @@
         applyButtonEffectSetting(state);
     }
 
-    function ensureInlineMessageElement() {
-        if (!fileInputLabelRef) return null;
-        if (!inlineMessageRef) {
-            const computedStyle = window.getComputedStyle(fileInputLabelRef);
-            if (computedStyle.position === 'static') {
-                fileInputLabelRef.style.position = 'relative';
+    function getToastAnchorElement() {
+        if (buttonWrapperRef) {
+            const interactive = buttonWrapperRef.querySelector('button, label');
+            if (interactive) {
+                return interactive;
             }
-            inlineMessageRef = document.createElement('div');
-            inlineMessageRef.id = 'local-subtitle-inline-message';
-            inlineMessageRef.style.cssText = `
-                position: absolute;
-                inset: 2px;
-                border-radius: inherit;
-                padding: 8px 10px;
-                border: 1px solid transparent;
-                display: none;
-                align-items: center;
-                justify-content: center;
-                text-align: center;
-                font-size: 14px;
-                font-weight: 600;
-                line-height: 1.4;
-                pointer-events: none;
-                opacity: 0;
-                transition: opacity 0.2s ease;
-                z-index: 5;
-            `;
-            fileInputLabelRef.appendChild(inlineMessageRef);
+            return buttonWrapperRef;
         }
-        return inlineMessageRef;
+        return fileInputLabelRef || null;
+    }
+
+    function ensureToastElement() {
+        if (toastMessageRef && toastMessageRef.isConnected) {
+            return toastMessageRef;
+        }
+        toastMessageRef = document.createElement('div');
+        toastMessageRef.id = 'local-subtitle-toast';
+        toastMessageRef.style.cssText = `
+            position: fixed;
+            left: 0;
+            top: 0;
+            transform: translate(-50%, 6px);
+            opacity: 0;
+            display: none;
+            visibility: hidden;
+            padding: 10px 14px;
+            border-radius: 12px;
+            border: 1px solid transparent;
+            box-shadow: 0 18px 36px rgba(0, 0, 0, 0.3);
+            font-size: 13px;
+            font-weight: 600;
+            line-height: 1.4;
+            text-align: center;
+            pointer-events: none;
+            max-width: min(360px, calc(100vw - 32px));
+            z-index: 2147483646;
+            transition: opacity 0.2s ease, transform 0.2s ease;
+        `;
+        document.body.appendChild(toastMessageRef);
+        return toastMessageRef;
+    }
+
+    function positionToastElement(anchor, toast) {
+        if (!toast) return;
+        const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+        const maxOffset = Math.max(0, viewportWidth - 16);
+        toast.style.left = '50%';
+        toast.style.top = 'auto';
+        toast.style.bottom = `${TOAST_BOTTOM_OFFSET}px`;
+        toast.style.maxWidth = `${maxOffset}px`;
     }
 
     function showInlineMessage(message, type = 'info', duration = 5000) {
-        if (type === 'success') {
-            hideInlineMessage();
-            applySuccessHighlight(duration);
-            return;
+        const toast = ensureToastElement();
+        if (!toast) return;
+        if (toastHideTimer) {
+            clearTimeout(toastHideTimer);
+            toastHideTimer = null;
         }
-
-        resetSuccessHighlight();
-
-        const inlineMessage = ensureInlineMessageElement();
-        if (!inlineMessage) return;
-        const theme = INLINE_MESSAGE_VARIANTS[type] || INLINE_MESSAGE_VARIANTS.info;
-        inlineMessage.textContent = message;
-        inlineMessage.style.backgroundColor = theme.background;
-        inlineMessage.style.color = theme.color;
-        inlineMessage.style.borderColor = theme.border;
-        inlineMessage.style.display = 'flex';
+        const theme = TOAST_VARIANTS[type] || TOAST_VARIANTS.info;
+        toast.textContent = message;
+        toast.style.backgroundColor = theme.background;
+        toast.style.color = theme.color;
+        toast.style.borderColor = theme.border;
+        toast.style.display = 'block';
+        toast.style.visibility = 'hidden';
+        toast.style.opacity = '0';
+        toast.style.transform = 'translate(-50%, 6px)';
+        positionToastElement(getToastAnchorElement(), toast);
+        toast.style.visibility = 'visible';
         requestAnimationFrame(() => {
-            inlineMessage.style.opacity = '1';
+            toast.style.opacity = '1';
+            toast.style.transform = 'translate(-50%, 0)';
         });
-        if (inlineMessageTimer) {
-            clearTimeout(inlineMessageTimer);
-            inlineMessageTimer = null;
+        if (toastMessageTimer) {
+            clearTimeout(toastMessageTimer);
+            toastMessageTimer = null;
         }
-        inlineMessageTimer = setTimeout(() => {
+        toastMessageTimer = window.setTimeout(() => {
             hideInlineMessage();
         }, duration);
+        if (type === 'success') {
+            applySuccessHighlight(duration);
+        } else {
+            resetSuccessHighlight();
+        }
     }
 
     function hideInlineMessage() {
-        if (!inlineMessageRef) return;
-        inlineMessageRef.style.opacity = '0';
-        setTimeout(() => {
-            if (inlineMessageRef) {
-                inlineMessageRef.style.display = 'none';
+        if (!toastMessageRef) return;
+        toastMessageRef.style.opacity = '0';
+        toastMessageRef.style.transform = 'translate(-50%, 6px)';
+        toastHideTimer = window.setTimeout(() => {
+            if (toastMessageRef) {
+                toastMessageRef.style.display = 'none';
+                toastMessageRef.style.visibility = 'hidden';
             }
-        }, 200);
-        if (inlineMessageTimer) {
-            clearTimeout(inlineMessageTimer);
-            inlineMessageTimer = null;
+            toastHideTimer = null;
+        }, 220);
+        if (toastMessageTimer) {
+            clearTimeout(toastMessageTimer);
+            toastMessageTimer = null;
         }
     }
 
@@ -2340,6 +2783,14 @@
     const DRIVE_FILES_ENDPOINT = 'https://www.googleapis.com/drive/v3/files';
     const DRIVE_FILE_PAGE_SIZE = 50;
     const DRIVE_FILE_FIELDS = 'files(id,name,mimeType,modifiedTime)';
+    const DRIVE_NORMALIZE_REGEX = /[^0-9a-z\u00c0-\u02ff\u0370-\u052f\u3040-\u30ff\u4e00-\u9fff\uac00-\ud7af\s]+/g;
+    const DRIVE_CJK_REGEX = /[\u3040-\u30ff\u4e00-\u9fff\uac00-\ud7af]/;
+    const DRIVE_MIN_KEYWORD_LENGTH = 2;
+    const DRIVE_MATCH_PRIORITY = {
+        full: 3,
+        partial: 2,
+        none: 1
+    };
     let drivePickerOverlayRef = null;
     let drivePickerListRef = null;
     let drivePickerStatusRef = null;
@@ -2677,71 +3128,83 @@
         return name.replace(/\.(srt|vtt)$/i, '');
     }
 
-    function normalizeForSimilarity(value) {
+    function normalizeTitleForMatch(value) {
         if (!value) return '';
-        let normalized = value;
+        let normalized = String(value);
         if (typeof normalized.normalize === 'function') {
             normalized = normalized.normalize('NFKC');
         }
         return normalized
             .toLowerCase()
-            .replace(/[^0-9a-z\u00c0-\u02ff\u0370-\u052f\u3040-\u30ff\u4e00-\u9fff\uac00-\ud7af\s]+/g, ' ')
+            .replace(DRIVE_NORMALIZE_REGEX, ' ')
             .replace(/\s+/g, ' ')
             .trim();
     }
 
-    function computeCharacterOverlap(a, b) {
-        const cleanA = normalizeForSimilarity(a).replace(/\s+/g, '');
-        const cleanB = normalizeForSimilarity(b).replace(/\s+/g, '');
-        if (!cleanA || !cleanB) return 0;
-        if (cleanA.includes(cleanB) || cleanB.includes(cleanA)) {
-            return Math.min(cleanA.length, cleanB.length) / Math.max(cleanA.length, cleanB.length);
-        }
-        const shorter = cleanA.length <= cleanB.length ? cleanA : cleanB;
-        const longer = cleanA.length > cleanB.length ? cleanA : cleanB;
-        const freq = new Map();
-        for (const char of shorter) {
-            freq.set(char, (freq.get(char) || 0) + 1);
-        }
-        let matches = 0;
-        for (const char of longer) {
-            const current = freq.get(char);
-            if (current) {
-                matches += 1;
-                if (current === 1) {
-                    freq.delete(char);
-                } else {
-                    freq.set(char, current - 1);
-                }
+    function extractTitleKeywords(normalizedValue) {
+        if (!normalizedValue) return [];
+        const matches = normalizedValue.match(/[0-9a-z\u00c0-\u02ff\u0370-\u052f]+|[\u3040-\u30ff\u4e00-\u9fff\uac00-\ud7af]+/g);
+        if (!matches) return [];
+        const uniques = [];
+        const seen = new Set();
+        matches.forEach(token => {
+            const keyword = token.trim();
+            if (!keyword) return;
+            const isCjk = DRIVE_CJK_REGEX.test(keyword);
+            if (!isCjk && keyword.length < DRIVE_MIN_KEYWORD_LENGTH) {
+                return;
             }
-        }
-        return matches / Math.max(longer.length, 1);
-    }
-
-    function computeDriveFileSimilarity(fileName, targetTitle) {
-        const normalizedFile = normalizeForSimilarity(stripSubtitleExtension(fileName || ''));
-        const normalizedTitle = normalizeForSimilarity(targetTitle || '');
-        if (!normalizedFile || !normalizedTitle) {
-            return 0;
-        }
-        if (normalizedFile === normalizedTitle) {
-            return 1;
-        }
-        const tokensFile = normalizedFile.split(' ').filter(Boolean);
-        const tokensTitle = normalizedTitle.split(' ').filter(Boolean);
-        const setFile = new Set(tokensFile);
-        const setTitle = new Set(tokensTitle);
-        let intersections = 0;
-        setFile.forEach(token => {
-            if (setTitle.has(token)) {
-                intersections += 1;
+            if (!seen.has(keyword)) {
+                seen.add(keyword);
+                uniques.push(keyword);
             }
         });
-        const union = setFile.size + setTitle.size - intersections;
-        const jaccard = union > 0 ? intersections / union : 0;
-        const coverage = setTitle.size > 0 ? intersections / setTitle.size : 0;
-        const charOverlap = computeCharacterOverlap(normalizedFile, normalizedTitle);
-        return Math.max(jaccard, coverage, charOverlap);
+        return uniques;
+    }
+
+    function buildDriveFileMatchInfo(fileName, targetTitle) {
+        const normalizedFile = normalizeTitleForMatch(stripSubtitleExtension(fileName || ''));
+        const normalizedTitle = normalizeTitleForMatch(targetTitle || '');
+        if (!normalizedFile || !normalizedTitle) {
+            return {
+                type: 'none',
+                priority: DRIVE_MATCH_PRIORITY.none,
+                matchedKeywords: [],
+                keywordCoverage: 0
+            };
+        }
+        if (normalizedFile.includes(normalizedTitle)) {
+            return {
+                type: 'full',
+                priority: DRIVE_MATCH_PRIORITY.full,
+                matchedKeywords: [],
+                keywordCoverage: 1
+            };
+        }
+        const keywords = extractTitleKeywords(normalizedTitle);
+        if (!keywords.length) {
+            return {
+                type: 'none',
+                priority: DRIVE_MATCH_PRIORITY.none,
+                matchedKeywords: [],
+                keywordCoverage: 0
+            };
+        }
+        const matchedKeywords = keywords.filter(keyword => normalizedFile.includes(keyword));
+        if (!matchedKeywords.length) {
+            return {
+                type: 'none',
+                priority: DRIVE_MATCH_PRIORITY.none,
+                matchedKeywords: [],
+                keywordCoverage: 0
+            };
+        }
+        return {
+            type: 'partial',
+            priority: DRIVE_MATCH_PRIORITY.partial,
+            matchedKeywords,
+            keywordCoverage: matchedKeywords.length / keywords.length
+        };
     }
 
     function ensureDrivePickerOverlay() {
@@ -2869,6 +3332,12 @@
             const button = document.createElement('button');
             button.type = 'button';
             button.className = 'local-subtitle-drive-file';
+            const matchInfo = file.matchInfo;
+            if (matchInfo?.type) {
+                button.dataset.matchType = matchInfo.type;
+            } else {
+                delete button.dataset.matchType;
+            }
             button.addEventListener('click', () => {
                 handleDrivePickerFileClick(file);
             });
@@ -2878,8 +3347,20 @@
             const meta = document.createElement('span');
             meta.className = 'local-subtitle-drive-file-meta';
             const parts = [];
-            if (typeof file.similarity === 'number' && file.similarity > 0) {
-                parts.push(`${pickerStrings.matchPrefix} ${Math.round(file.similarity * 100)}%`);
+            if (matchInfo?.type === 'full' && pickerStrings.matchExact) {
+                parts.push(pickerStrings.matchExact);
+            } else if (matchInfo?.type === 'partial') {
+                const keywordPreview = (matchInfo.matchedKeywords || [])
+                    .filter(Boolean)
+                    .slice(0, 3)
+                    .join(', ');
+                if (keywordPreview && typeof pickerStrings.matchPartialKeywords === 'function') {
+                    parts.push(pickerStrings.matchPartialKeywords(keywordPreview));
+                } else if (keywordPreview && pickerStrings.matchPartialKeywords) {
+                    parts.push(`${pickerStrings.matchPartialKeywords} ${keywordPreview}`);
+                } else if (pickerStrings.matchPartial) {
+                    parts.push(pickerStrings.matchPartial);
+                }
             }
             if (file.modifiedTime) {
                 try {
@@ -2905,15 +3386,18 @@
         const videoTitle = await getActiveVideoTitle();
         const subtitleFiles = allFiles
             .filter(file => isDriveSubtitleFileName(file?.name))
-            .map(file => ({
-                ...file,
-                similarity: computeDriveFileSimilarity(file?.name, videoTitle)
-            }))
+            .map(file => {
+                const matchInfo = buildDriveFileMatchInfo(file?.name, videoTitle);
+                return { ...file, matchInfo };
+            })
             .sort((a, b) => {
-                if (typeof b.similarity === 'number' && typeof a.similarity === 'number') {
-                    if (b.similarity !== a.similarity) {
-                        return b.similarity - a.similarity;
-                    }
+                const priorityDiff = (b.matchInfo?.priority || 0) - (a.matchInfo?.priority || 0);
+                if (priorityDiff !== 0) {
+                    return priorityDiff;
+                }
+                const coverageDiff = (b.matchInfo?.keywordCoverage || 0) - (a.matchInfo?.keywordCoverage || 0);
+                if (coverageDiff !== 0) {
+                    return coverageDiff;
                 }
                 if (a.modifiedTime && b.modifiedTime) {
                     const delta = new Date(b.modifiedTime).getTime() - new Date(a.modifiedTime).getTime();
@@ -2988,15 +3472,19 @@
         if (driveListingInProgress || driveSelectionInProgress) return;
         driveSelectionInProgress = true;
         try {
+            const driveStrings = getDriveStrings();
             const { files, token } = await fetchDriveSubtitleFileList();
-            const best = files[0];
-            if (!best) {
+            const exactMatch = files.find(file => file.matchInfo?.type === 'full');
+            if (!exactMatch) {
+                if (driveStrings?.messages?.noMatchingSubtitle) {
+                    showInlineMessage(driveStrings.messages.noMatchingSubtitle, 'error');
+                }
                 setLabelState(hasLoadedSubtitles() ? 'loaded' : 'default');
                 return;
             }
             setLabelState('loading');
             const authToken = token || await ensureDriveAccessToken();
-            const content = await downloadDriveFileContent(best.id, authToken);
+            const content = await downloadDriveFileContent(exactMatch.id, authToken);
             if (!content) {
                 setLabelState(hasLoadedSubtitles() ? 'loaded' : 'default');
                 return;
@@ -3025,19 +3513,6 @@
             return;
         }
         loadDrivePickerFileList();
-    }
-
-    function registerDriveMenuCommands() {
-        if (driveMenuRegistered || typeof GM_registerMenuCommand !== 'function') {
-            if (typeof GM_registerMenuCommand !== 'function' && !driveMenuRegistered) {
-                console.warn('GM_registerMenuCommand unavailable; Drive menu disabled.');
-            }
-            return;
-        }
-        const labels = getDriveStrings();
-        GM_registerMenuCommand(labels.menuLoad, openGoogleDriveFilePicker);
-        GM_registerMenuCommand(labels.menuConfigure, promptDriveCredentials);
-        driveMenuRegistered = true;
     }
 /* -------------------------------------------------------------------------- *
  * Module 10 · Cleanup routines and SPA-aware initialization
@@ -3072,13 +3547,20 @@
         document.getElementById('custom-subtitle-display')?.remove();
         resetSuccessHighlight();
         document.getElementById('local-subtitle-input-container')?.remove();
-        if (inlineMessageTimer) {
-            clearTimeout(inlineMessageTimer);
-            inlineMessageTimer = null;
+        if (toastMessageTimer) {
+            clearTimeout(toastMessageTimer);
+            toastMessageTimer = null;
         }
-        if (inlineMessageRef) {
-            inlineMessageRef.remove();
-            inlineMessageRef = null;
+        if (toastHideTimer) {
+            clearTimeout(toastHideTimer);
+            toastHideTimer = null;
+        }
+        if (toastPositionCleanup) {
+            toastPositionCleanup();
+        }
+        if (toastMessageRef) {
+            toastMessageRef.remove();
+            toastMessageRef = null;
         }
         cancelEffectPreview();
         cancelScheduledFilePicker();
@@ -3135,8 +3617,6 @@
 
     loadSettings();
     loadDriveSettings();
-    registerSettingsMenu();
-    registerDriveMenuCommands();
 
     // ---- Main Execution ----
     document.addEventListener('click', handleGlobalSettingsClick, true);
